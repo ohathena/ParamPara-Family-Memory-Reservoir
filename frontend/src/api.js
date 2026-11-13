@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api', timeout: 70000 })
+// Production always talks to the live API; local development uses the Vite proxy (/api)
+const API_URL = import.meta.env.PROD ? 'https://parampara-api-b1s0.onrender.com/api' : '/api'
+const api = axios.create({ baseURL: API_URL, timeout: 70000 })
 
 export const tokenStore = {
   get: () => localStorage.getItem('token'),
