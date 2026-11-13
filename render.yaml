@@ -26,7 +26,7 @@ services:
       - key: MONGO_URI
         sync: false             # you paste this in the dashboard (MongoDB Atlas connection string)
       - key: CLIENT_URL
-        sync: false             # the website address, e.g. https://parampara-web.onrender.com
+        sync: https://parampara-web.onrender.com             # the website address, e.g. https://parampara-web.onrender.com
       # optional: password reset emails (Brevo, free)
       - key: EMAIL_PROVIDER
         sync: false
@@ -54,7 +54,7 @@ services:
         - frontend/**
     envVars:
       - key: VITE_API_URL
-        sync: false             # the API address + /api, e.g. https://parampara-api.onrender.com/api
+        sync: https://parampara-api-b1s0.onrender.com/api            # the API address + /api, e.g. https://parampara-api.onrender.com/api
     routes:
       # single page app: every path is served by index.html, React Router takes over
       - type: rewrite
