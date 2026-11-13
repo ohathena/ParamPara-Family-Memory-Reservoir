@@ -1,0 +1,10 @@
+{
+  "name": "ParamPara",
+  "short_name": "ParamPara",
+  "description": "Your family's private record",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#faf8f4",
+  "theme_color": "#8c2232",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

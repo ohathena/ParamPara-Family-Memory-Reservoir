@@ -1,17 +1,28 @@
-require('dotenv').config();
+const mongoose = require('mongoose');
+const env = require('./config/env');
 const app = require('./app');
 const connectDB = require('./config/db');
 
-const PORT = process.env.PORT || 5000;
+let server;
+
+async function shutdown(signal) {
+  console.log(`${signal} received, shutting down...`);
+  // stop taking new requests, finish current ones, then close the database
+  server.close(async () => {
+    await mongoose.connection.close();
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10000).unref(); // do not hang forever
+}
 
 (async () => {
-  if (!process.env.MONGO_URI || !process.env.JWT_SECRET) {
-    console.error('Missing MONGO_URI or JWT_SECRET in .env');
-    process.exit(1);
-  }
   await connectDB();
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  server = app.listen(env.port, () => console.log(`Server running on port ${env.port} (${env.nodeEnv})`));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 })().catch((err) => {
   console.error('Failed to start:', err.message);
   process.exit(1);
 });
+
+process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));

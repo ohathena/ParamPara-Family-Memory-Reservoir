@@ -1,107 +1,91 @@
 const Memory = require('../models/Memory');
-const FamilyMember = require('../models/FamilyMember');
+const Comment = require('../models/Comment');
 const { HttpError } = require('../middleware/error');
-const { getFamilyForUser, checkId } = require('../middleware/access');
+const { getFamilyForUser, checkId, canWrite } = require('../services/accessService');
+const { assertPeopleInFamily, listMemories } = require('../services/memoryService');
+const { logActivity } = require('../services/activityService');
+const comments = require('../services/commentService');
+const { withTransaction } = require('../utils/transaction');
 
-const FIELDS = ['title', 'content', 'category', 'eventDate', 'location', 'mediaUrl', 'people'];
-const pick = (body) => {
-  const out = {};
-  for (const key of FIELDS) if (body[key] !== undefined) out[key] = body[key];
-  return out;
-};
-
-// every person tagged in a memory must exist and belong to the same family
-async function checkPeople(people, familyId) {
-  if (people === undefined) return;
-  if (!Array.isArray(people)) throw new HttpError(400, 'people must be an array of member IDs');
-  people.forEach(checkId);
-  const count = await FamilyMember.countDocuments({ _id: { $in: people }, family: familyId });
-  if (count !== new Set(people.map(String)).size) throw new HttpError(400, 'Some people do not belong to this family');
-}
-
-async function loadMemory(id, user) {
+async function loadMemory(id, user, options) {
   checkId(id);
   const memory = await Memory.findById(id);
   if (!memory) throw new HttpError(404, 'Memory not found');
-  const family = await getFamilyForUser(memory.family, user);
+  const family = await getFamilyForUser(memory.family, user, options);
   return { memory, family };
 }
 
-exports.create = async (req, res) => {
-  const { family: familyId } = req.body;
-  if (!familyId) throw new HttpError(400, 'family is required');
-  const family = await getFamilyForUser(familyId, req.user);
-  await checkPeople(req.body.people, family._id);
+const isOwner = (family, user) => family.owner.equals(user._id);
+const isAuthor = (doc, user) => doc.author && doc.author.equals(user._id);
 
-  const memory = await Memory.create({ ...pick(req.body), family: family._id, author: req.user._id });
-  res.status(201).json({ success: true, memory });
-};
-
-// GET /api/memories?family=ID&category=&author=&from=&to=&q=&sort=&page=&limit=
-exports.list = async (req, res) => {
-  const { family: familyId, category, author, from, to, q, sort } = req.query;
-  if (!familyId) throw new HttpError(400, 'family query parameter is required');
-  const family = await getFamilyForUser(familyId, req.user);
-
-  const filter = { family: family._id };
-  if (category) filter.category = String(category);
-  if (author) {
-    checkId(author);
-    filter.author = author;
-  }
-  if (from || to) {
-    filter.eventDate = {};
-    if (from) filter.eventDate.$gte = new Date(from);
-    if (to) filter.eventDate.$lte = new Date(to);
-    if (Object.values(filter.eventDate).some((d) => isNaN(d))) throw new HttpError(400, 'Invalid date');
-  }
-  if (q) {
-    const safe = String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // escape regex characters
-    filter.$or = [{ title: new RegExp(safe, 'i') }, { content: new RegExp(safe, 'i') }];
-  }
-
-  const sortOptions = { newest: { createdAt: -1 }, oldest: { createdAt: 1 }, event: { eventDate: -1 } };
-  const page = Math.max(parseInt(req.query.page) || 1, 1);
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 50);
-
-  const [memories, total] = await Promise.all([
-    Memory.find(filter)
-      .sort(sortOptions[sort] || sortOptions.newest)
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .populate('author', 'name')
-      .populate('people', 'name'),
-    Memory.countDocuments(filter),
-  ]);
-
-  res.json({ success: true, page, limit, total, pages: Math.ceil(total / limit), memories });
-};
-
-exports.get = async (req, res) => {
-  const { memory } = await loadMemory(req.params.id, req.user);
-  await memory.populate([{ path: 'author', select: 'name' }, { path: 'people', select: 'name' }]);
-  res.json({ success: true, memory });
-};
-
-// author or family owner can edit/delete
-function canModify(memory, family, user) {
-  if (!memory.author.equals(user._id) && !family.owner.equals(user._id)) {
+// author or family owner can edit/delete (and a viewer cannot edit, even an old memory of their own)
+function assertCanModify(memory, family, user) {
+  if (!isAuthor(memory, user) && !isOwner(family, user)) {
     throw new HttpError(403, 'Only the author or family owner can change this memory');
   }
 }
 
-exports.update = async (req, res) => {
+exports.create = async (req, res) => {
+  const family = await getFamilyForUser(req.body.family, req.user, { write: true });
+  await assertPeopleInFamily(req.body.people, family._id);
+  const memory = await Memory.create({ ...req.body, family: family._id, author: req.user._id });
+  await logActivity({ family, actor: req.user, action: 'memory.created', subjectType: 'memory', subjectId: memory._id, subjectLabel: memory.title });
+  res.status(201).json({ success: true, memory });
+};
+
+exports.list = async (req, res) => {
+  const family = await getFamilyForUser(req.validQuery.family, req.user);
+  res.json({ success: true, ...(await listMemories(family._id, req.validQuery)) });
+};
+
+// the memory + what the current user may do with it (so the page does not need a second request)
+exports.get = async (req, res) => {
   const { memory, family } = await loadMemory(req.params.id, req.user);
-  canModify(memory, family, req.user);
-  await checkPeople(req.body.people, family._id);
-  Object.assign(memory, pick(req.body));
+  await memory.populate([{ path: 'author', select: 'name' }, { path: 'people', select: 'name photoUrl' }]);
+  const role = family.$locals.role;
+  const canEdit = canWrite(role) && ((memory.author && memory.author._id.equals(req.user._id)) || role === 'owner');
+  res.json({ success: true, memory, role, canEdit });
+};
+
+exports.update = async (req, res) => {
+  const { memory, family } = await loadMemory(req.params.id, req.user, { write: true });
+  assertCanModify(memory, family, req.user);
+  await assertPeopleInFamily(req.body.people, family._id);
+  Object.assign(memory, req.body);
   await memory.save();
   res.json({ success: true, memory });
 };
 
 exports.remove = async (req, res) => {
-  const { memory, family } = await loadMemory(req.params.id, req.user);
-  canModify(memory, family, req.user);
-  await memory.deleteOne();
+  const { memory, family } = await loadMemory(req.params.id, req.user, { write: true });
+  assertCanModify(memory, family, req.user);
+  await withTransaction(async (session) => {
+    await Comment.deleteMany({ memory: memory._id }, { session });
+    await Memory.deleteOne({ _id: memory._id }, { session });
+  });
   res.json({ success: true, message: 'Memory deleted' });
+};
+
+// ---- comments (every role, viewers too) ----
+exports.listComments = async (req, res) => {
+  const { memory } = await loadMemory(req.params.id, req.user);
+  const list = await comments.listComments(memory._id);
+  res.json({ success: true, count: list.length, comments: list });
+};
+
+exports.addComment = async (req, res) => {
+  const { memory } = await loadMemory(req.params.id, req.user);
+  const comment = await comments.addComment(memory, req.user, req.body.content);
+  res.status(201).json({ success: true, comment });
+};
+
+// comment author or family owner can delete a comment
+exports.deleteComment = async (req, res) => {
+  checkId(req.params.id);
+  const comment = await Comment.findById(req.params.id);
+  if (!comment) throw new HttpError(404, 'Comment not found');
+  const family = await getFamilyForUser(comment.family, req.user);
+  if (!isAuthor(comment, req.user) && !isOwner(family, req.user)) throw new HttpError(403, 'Only the writer or family owner can delete this comment');
+  await comments.deleteComment(comment);
+  res.json({ success: true, message: 'Comment deleted' });
 };

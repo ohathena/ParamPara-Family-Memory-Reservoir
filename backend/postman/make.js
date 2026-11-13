@@ -74,6 +74,25 @@ const items = [
   ]},
 ];
 
+items.push({ name: '6. Views and invitations (v1.1)', item: [
+  req('Family stats', 'GET', '/api/families/{{familyId}}/stats', null, { tests: [status(200)] }),
+  req('All relationships in family', 'GET', '/api/families/{{familyId}}/relationships', null, { tests: [status(200)] }),
+  req('Family tree (generations)', 'GET', '/api/families/{{familyId}}/tree', null, { tests: [status(200)] }),
+  req('Timeline', 'GET', '/api/families/{{familyId}}/timeline', null, { tests: [status(200)] }),
+  req('Timeline bad date (400)', 'GET', '/api/families/{{familyId}}/timeline?from=garbage', null, { tests: [status(400)] }),
+  req('Outsider reads tree (403)', 'GET', '/api/families/{{familyId}}/tree', null, { other: 'tokenB', tests: [status(403)] }),
+  req('Outsider creates invitation (403)', 'POST', '/api/families/{{familyId}}/invitations', null, { other: 'tokenB', tests: [status(403)] }),
+  req('Owner creates invitation', 'POST', '/api/families/{{familyId}}/invitations', null, { tests: [status(201), save('inviteToken', 'token')] }),
+  req('Outsider previews invitation', 'GET', '/api/invitations/{{inviteToken}}', null, { other: 'tokenB', tests: [status(200)] }),
+  req('Outsider accepts invitation', 'POST', '/api/invitations/{{inviteToken}}/accept', null, { other: 'tokenB', tests: [status(200)] }),
+  req('Accepting again as member (200, alreadyMember)', 'POST', '/api/invitations/{{inviteToken}}/accept', null, { other: 'tokenB', tests: [status(200)] }),
+  req('Former outsider can now read family', 'GET', '/api/families/{{familyId}}', null, { other: 'tokenB', tests: [status(200)] }),
+  req('Collaborator leaves family', 'DELETE', '/api/families/{{familyId}}/leave', null, { other: 'tokenB', tests: [status(200)] }),
+  req('Owner cannot leave (400)', 'DELETE', '/api/families/{{familyId}}/leave', null, { tests: [status(400)] }),
+  req('Change name', 'PATCH', '/api/auth/me', { name: 'Rir Updated' }, { tests: [status(200)] }),
+  req('Change password wrong current (400)', 'POST', '/api/auth/change-password', { currentPassword: 'wrongwrong', newPassword: 'newpassword1' }, { tests: [status(400)] }),
+]});
+
 const collection = {
   info: { name: 'ParamPara API', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
   variable: [

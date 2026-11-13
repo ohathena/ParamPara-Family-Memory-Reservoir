@@ -1,46 +1,25 @@
 const router = require('express').Router();
+const env = require('../config/env');
 const auth = require('../middleware/auth');
-const authC = require('../controllers/authController');
-const familyC = require('../controllers/familyController');
-const memberC = require('../controllers/memberController');
-const relC = require('../controllers/relationshipController');
-const memoryC = require('../controllers/memoryController');
 
-// auth
-router.post('/auth/register', authC.register);
-router.post('/auth/login', authC.login);
-router.get('/auth/me', auth, authC.me);
+router.use('/auth', require('./auth'));
+
+// public: tells the frontend which optional features this server has turned on
+router.get('/config', (req, res) => {
+  res.json({
+    success: true,
+    features: { email: env.email.enabled || !env.isProd, uploads: env.cloudinary.enabled },
+  });
+});
 
 // everything below needs a logged-in user
 router.use(auth);
-
-// families
-router.post('/families', familyC.create);
-router.get('/families', familyC.list);
-router.get('/families/:id', familyC.get);
-router.patch('/families/:id', familyC.update);
-router.delete('/families/:id', familyC.remove);
-router.post('/families/:id/collaborators', familyC.addCollaborator);
-router.delete('/families/:id/collaborators/:userId', familyC.removeCollaborator);
-
-// members
-router.post('/families/:id/members', memberC.create);
-router.get('/families/:id/members', memberC.listForFamily);
-router.get('/members/:id', memberC.get);
-router.patch('/members/:id', memberC.update);
-router.delete('/members/:id', memberC.remove);
-
-// relationships
-router.post('/relationships', relC.create);
-router.get('/members/:id/relationships', relC.listForMember);
-router.patch('/relationships/:id', relC.update);
-router.delete('/relationships/:id', relC.remove);
-
-// memories
-router.post('/memories', memoryC.create);
-router.get('/memories', memoryC.list);
-router.get('/memories/:id', memoryC.get);
-router.patch('/memories/:id', memoryC.update);
-router.delete('/memories/:id', memoryC.remove);
+router.use('/families', require('./families'));
+router.use('/members', require('./members'));
+router.use('/relationships', require('./relationships'));
+router.use('/memories', require('./memories'));
+router.use('/comments', require('./comments'));
+router.use('/invitations', require('./invitations'));
+router.use('/uploads', require('./uploads'));
 
 module.exports = router;

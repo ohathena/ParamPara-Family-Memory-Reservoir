@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import api, { errMsg } from '../api'
-import { ErrorBox, Loading } from '../components/ui'
+import { useToast } from '../components/Toast'
+import { BackLink, ErrorBox, Loading } from '../components/ui'
 
 export default function FamilyForm() {
   const { id } = useParams() // present when editing
   const navigate = useNavigate()
+  const toast = useToast()
   const [form, setForm] = useState({ name: '', description: '' })
   const [loading, setLoading] = useState(!!id)
   const [busy, setBusy] = useState(false)
@@ -25,7 +27,8 @@ export default function FamilyForm() {
     setError('')
     try {
       const res = id ? await api.patch(`/families/${id}`, form) : await api.post('/families', form)
-      navigate(`/families/${res.data.family._id}`)
+      toast.success(id ? 'Family saved' : 'Family created')
+      navigate(`/families/${res.data.family._id}${id ? '' : '/members/new'}`)
     } catch (err) {
       setError(errMsg(err))
       setBusy(false)
@@ -34,18 +37,22 @@ export default function FamilyForm() {
 
   if (loading) return <Loading />
   return (
-    <form onSubmit={submit} className="card mx-auto max-w-lg space-y-4">
-      <h1 className="text-2xl font-bold text-forest">{id ? 'Edit family' : 'Create a family'}</h1>
-      <ErrorBox message={error} />
-      <div>
-        <label className="label">Family name</label>
-        <input className="input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      </div>
-      <div>
-        <label className="label">Description</label>
-        <textarea className="input" rows="3" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-      </div>
-      <button className="btn" disabled={busy}>{busy ? 'Saving...' : 'Save'}</button>
-    </form>
+    <div className="mx-auto max-w-lg">
+      <BackLink to={id ? `/families/${id}` : '/dashboard'}>{id ? 'Back to the family' : 'My families'}</BackLink>
+      <h1 className="page-title">{id ? 'Edit family' : 'Create a family'}</h1>
+      {!id && <p className="mt-1 text-ink-soft">Next you will add the first people to your tree.</p>}
+      <form onSubmit={submit} className="sheet-pad mt-6 space-y-4">
+        <ErrorBox message={error} />
+        <div>
+          <label className="label" htmlFor="name">Family name</label>
+          <input id="name" className="input" required maxLength={100} placeholder="The Sharma Family" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+        <div>
+          <label className="label" htmlFor="desc">About this family <span className="font-normal text-ink-soft">(optional)</span></label>
+          <textarea id="desc" className="input" rows="3" maxLength={1000} placeholder="Where you are from, what ties you together" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        </div>
+        <button className="btn" disabled={busy}>{busy ? 'Saving...' : id ? 'Save changes' : 'Create family'}</button>
+      </form>
+    </div>
   )
 }

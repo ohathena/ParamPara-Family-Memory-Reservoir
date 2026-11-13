@@ -27,8 +27,12 @@ function errorHandler(err, req, res, next) {
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ success: false, message: 'Invalid JSON body' });
   }
-  console.error(err); // logged on server only
-  res.status(500).json({ success: false, message: 'Something went wrong' });
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ success: false, message: 'Request body too large' });
+  }
+  // Unknown error: log details on the server only, give the client a request id to quote
+  console.error(`[${req.id}]`, err);
+  res.status(500).json({ success: false, message: 'Something went wrong', requestId: req.id });
 }
 
 module.exports = { HttpError, notFound, errorHandler };

@@ -13,11 +13,16 @@ const memorySchema = new mongoose.Schema(
     eventDate: { type: Date },
     location: { type: String, trim: true, maxlength: 150, default: '' },
     mediaUrl: { type: String, trim: true, default: '' },
+    // kept in sync by the comment service, so lists can show it without an extra query
+    commentCount: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }
 );
 
 memorySchema.index({ family: 1, category: 1, eventDate: -1 });
+memorySchema.index({ family: 1, eventDate: 1 }); // timeline
+memorySchema.index({ family: 1, people: 1 }); // memories about one person
+memorySchema.index({ family: 1, createdAt: -1 }); // newest first (default list)
 
 module.exports = mongoose.model('Memory', memorySchema);
 module.exports.CATEGORIES = CATEGORIES;

@@ -1,38 +1,34 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState } from 'react'
-import api from './api'
+import api, { tokenStore } from './api'
 
 const AuthContext = createContext(null)
 export const useAuth = () => useContext(AuthContext)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!!tokenStore.get())
 
   // on page load, check if the saved token is still valid
   useEffect(() => {
-    if (!localStorage.getItem('token')) return setLoading(false)
+    if (!tokenStore.get()) return
     api.get('/auth/me')
       .then((res) => setUser(res.data.user))
-      .catch(() => localStorage.removeItem('token'))
+      .catch(() => tokenStore.clear())
       .finally(() => setLoading(false))
   }, [])
 
-  const login = async (email, password) => {
-    const res = await api.post('/auth/login', { email, password })
-    localStorage.setItem('token', res.data.token)
-    setUser(res.data.user)
+  // any response that carries a fresh token (login, password change, reset) goes through here
+  const startSession = (data) => {
+    if (data.token) tokenStore.set(data.token)
+    if (data.user) setUser(data.user)
   }
-
-  const register = async (name, email, password) => {
-    const res = await api.post('/auth/register', { name, email, password })
-    localStorage.setItem('token', res.data.token)
-    setUser(res.data.user)
-  }
-
+  const login = async (email, password) => startSession((await api.post('/auth/login', { email, password })).data)
+  const register = async (name, email, password) => startSession((await api.post('/auth/register', { name, email, password })).data)
   const logout = () => {
-    localStorage.removeItem('token')
+    tokenStore.clear()
     setUser(null)
   }
 
-  return <AuthContext.Provider value={{ user, loading, login, register, logout }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, setUser, loading, login, register, logout, startSession }}>{children}</AuthContext.Provider>
 }

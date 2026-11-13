@@ -1,22 +1,40 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const morgan = require('morgan');
+const compression = require('compression');
+const mongoose = require('mongoose');
 const rateLimit = require('express-rate-limit');
+const swaggerUi = require('swagger-ui-express');
+const env = require('./config/env');
+const openapi = require('./docs/openapi');
 const routes = require('./routes');
+const { version } = require('../package.json');
+const requestId = require('./middleware/requestId');
 const { notFound, errorHandler } = require('./middleware/error');
 
 const app = express();
 
+if (env.trustProxy) app.set('trust proxy', 1); // needed so rate limiting sees the real client IP behind a host's proxy
+
+app.use(requestId);
+if (!env.isTest) app.use(morgan(env.isProd ? 'combined' : 'dev'));
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
+app.use(compression());
+app.use(cors({ origin: env.clientUrls, exposedHeaders: ['Content-Disposition', 'X-Request-Id'], maxAge: 600 }));
 app.use(express.json({ limit: '100kb' }));
 
-// limit login/register attempts
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: true, legacyHeaders: false });
-app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/register', authLimiter);
+// Health checks: "live" = process is up, "ready" = database is connected too (used by hosting platforms)
+app.get('/api/health', (req, res) => res.json({ success: true, message: 'ParamPara API running', version }));
+app.get('/api/health/ready', (req, res) => {
+  const ready = mongoose.connection.readyState === 1;
+  res.status(ready ? 200 : 503).json({ success: ready, database: ready ? 'connected' : 'not connected' });
+});
 
-app.get('/api/health', (req, res) => res.json({ success: true, message: 'ParamPara API running' }));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openapi));
+
+// general limit for the whole API (login/register have stricter limits of their own)
+app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false, skip: () => env.isTest }));
 app.use('/api', routes);
 
 app.use(notFound);
